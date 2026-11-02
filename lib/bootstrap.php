@@ -101,6 +101,11 @@ function valid_customer_phone($phone)
     return (bool)preg_match('/^7[0-9]{8}$/', $phone) && !preg_match('/^(\d)\1{8}$/', $phone);
 }
 
+function valid_admin_password($password)
+{
+    return mb_strlen((string)$password, 'UTF-8') >= 12 && strlen((string)$password) <= 72;
+}
+
 function client_ip()
 {
     return substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
@@ -137,6 +142,10 @@ function default_settings()
     return [
         'store_name'         => 'WOK BOX | ووك بوكس',
         'tagline'            => 'لقمتك... على كيفك',
+        'schedule_enabled'   => '0',
+        'opens_at'           => '18:00',
+        'closes_at'          => '23:30',
+        'site_url'           => '',
         'hours'              => 'من 6:00 مساءً حتى 11:30 مساءً',
         'open'               => '1',
         'contact_1'          => '',
@@ -173,6 +182,46 @@ function set_setting($key, $value)
     db()->prepare('INSERT INTO settings (skey, svalue) VALUES (?, ?) ON DUPLICATE KEY UPDATE svalue = VALUES(svalue)')
         ->execute([$key, (string)$value]);
     settings_all(true);
+}
+
+function valid_time($time)
+{
+    return (bool)preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/', (string)$time);
+}
+
+function store_is_open(array $settings, $now = null)
+{
+    if (($settings['open'] ?? '0') !== '1') { return false; }
+    if (($settings['schedule_enabled'] ?? '0') !== '1') { return true; }
+    $start = $settings['opens_at'] ?? '';
+    $end = $settings['closes_at'] ?? '';
+    if (!valid_time($start) || !valid_time($end) || $start === $end) { return false; }
+    $now = $now === null ? date('H:i') : $now;
+    if (!valid_time($now)) { return false; }
+    return $start < $end ? ($now >= $start && $now < $end) : ($now >= $start || $now < $end);
+}
+
+function public_site_url()
+{
+    $url = trim((string)setting('site_url', ''));
+    if ($url === '') { $url = trim((string)cfg('site_url', '')); }
+    if ($url === '') { return ''; }
+    $parts = parse_url($url);
+    if (!$parts || !in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
+        || empty($parts['host']) || isset($parts['user']) || isset($parts['pass'])
+        || isset($parts['query']) || isset($parts['fragment'])
+        || !preg_match('/^[a-z0-9.-]+$/i', $parts['host'])) { return ''; }
+    return rtrim($url, '/');
+}
+
+function delete_unused_image($name)
+{
+    if (!valid_image_name($name)) { return; }
+    try {
+        $st = db()->prepare("SELECT (SELECT COUNT(*) FROM products WHERE image = ?) + (SELECT COUNT(*) FROM ads WHERE image = ?) + (SELECT COUNT(*) FROM settings WHERE skey = 'logo' AND svalue = ?)");
+        $st->execute([$name, $name, $name]);
+        if ((int)$st->fetchColumn() === 0) { delete_image($name); }
+    } catch (Throwable $e) { error_log('[wokbox] image cleanup deferred: ' . $e->getMessage()); }
 }
 
 function valid_image_name($name)

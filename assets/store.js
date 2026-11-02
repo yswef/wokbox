@@ -25,15 +25,17 @@
 
   function api(action, body, method) {
     method = method || 'POST';
+    var status = 0;
     return fetch('api/public.php?action=' + action, {
       method: method,
       headers: { 'Content-Type': 'application/json' },
       body: method === 'POST' ? JSON.stringify(body || {}) : undefined,
       cache: 'no-store'
     }).then(function (r) {
+      status = r.status;
       return r.json().catch(function () { throw new Error('تعذر الاتصال بالخادم، حاول مرة أخرى.'); });
     }).then(function (j) {
-      if (!j.ok) { throw new Error(j.error || 'حدث خطأ'); }
+      if (!j.ok) { var err = new Error(j.error || 'حدث خطأ'); err.definitive = status >= 400 && status < 500; throw err; }
       return j.data;
     });
   }
@@ -266,8 +268,10 @@
   }
 
   /* ---------- إرسال الطلب ---------- */
+  var submitting = false, memoryAttempt = null;
   function submitOrder(ev) {
     ev.preventDefault();
+    if (submitting) { return; }
     var err = $('#form-error');
     err.textContent = '';
     var name = $('#f-name').value.trim(), phone = $('#f-phone').value.trim(), address = $('#f-address').value.trim();
@@ -278,24 +282,69 @@
     if (address.length < 5) { err.textContent = 'اكتب العنوان بالتفصيل.'; return; }
     var btn = $('#submit-order');
     btn.disabled = true;
+    submitting = true;
     $('span', btn).textContent = 'جارٍ الإرسال...';
     var payload = {
       name: name, phone: phone, address: address, notes: $('#f-notes').value.trim(), zone_id: zone,
       coupon: state.coupon, website: $('#f-website').value,
       items: cartEntries().map(function (e) { return { id: e.p.id, qty: e.q }; })
     };
+    // Keep the same unpredictable key when retrying a submission after a lost response.
+    var fingerprint = JSON.stringify(payload), attempt = null;
+    try { attempt = JSON.parse(sessionStorage.getItem('wb_order_attempt') || 'null'); } catch (e) { /* unavailable */ }
+    if (!attempt) { attempt = memoryAttempt; }
+    if (attempt && attempt.fingerprint !== fingerprint) {
+      submitting = false; btn.disabled = false; $('span', btn).textContent = 'تأكيد الطلب';
+      err.textContent = 'تحقق أولًا من نتيجة الطلب السابق عبر زر استعادة رد الطلب في قسم التتبع.'; return;
+    }
+    if (!attempt) {
+      if (!window.crypto || !window.crypto.getRandomValues) {
+        submitting = false; btn.disabled = false; $('span', btn).textContent = 'تأكيد الطلب';
+        err.textContent = 'يلزم اتصال آمن لإرسال الطلب. افتح الموقع عبر HTTPS.'; return;
+      }
+      var bytes = new Uint8Array(16); window.crypto.getRandomValues(bytes);
+      attempt = { fingerprint: fingerprint, token: Array.prototype.map.call(bytes, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('') };
+      try { sessionStorage.setItem('wb_order_attempt', JSON.stringify(attempt)); } catch (e) { /* in-memory retry below */ }
+    }
+    memoryAttempt = attempt;
+    $('#recover-order').hidden = false; $('#recover-help').hidden = false;
+    payload.request_token = attempt.token;
     api('order', payload).then(function (r) {
+      finishOrder(r, { name: name, phone: phone, address: address, zone: zone });
+    }).catch(function (e) {
+      err.textContent = e.message;
+      refreshMenu();
+      if (e.definitive) {
+        // A second request may still be in progress; recovery waits on the same lock.
+        return api('order_recover', { request_token: attempt.token, phone: phone }).then(function (result) {
+          if (result.found) { finishOrder(result.order, { name: name, phone: phone, address: address, zone: zone }); }
+          else {
+            memoryAttempt = null; try { sessionStorage.removeItem('wb_order_attempt'); } catch (_) {}
+            $('#recover-order').hidden = true; $('#recover-help').hidden = true;
+          }
+        }).catch(function () { err.textContent += ' تحقق من المحاولة السابقة في قسم التتبع قبل التعديل.'; });
+      }
+      err.textContent += ' تحقق من المحاولة السابقة في قسم التتبع قبل التعديل.';
+    }).then(function () {
+      submitting = false;
+      $('span', btn).textContent = 'تأكيد الطلب';
+      renderSummary();
+    });
+  }
+
+  function finishOrder(r, details, clearCart) {
+      memoryAttempt = null;
+      $('#recover-order').hidden = true; $('#recover-help').hidden = true;
+      try { sessionStorage.removeItem('wb_order_attempt'); } catch (e) { /* unavailable */ }
       var list = load(ORD_KEY, []);
       list.unshift({ code: r.code, phone: r.phone, at: Date.now() });
       save(ORD_KEY, list.slice(0, 10));
-      save(PROFILE_KEY, { name: name, phone: phone, address: address, zone: zone || '' });
-      cart = {};
-      save(CART_KEY, cart);
-      state.coupon = '';
-      state.quote = null;
-      $('#f-coupon').value = '';
-      $('#coupon-msg').textContent = '';
-      $('#f-notes').value = '';
+      renderSavedOrders();
+      save(PROFILE_KEY, { name: details.name, phone: details.phone, address: details.address, zone: details.zone || '' });
+      if (clearCart !== false) {
+        cart = {}; save(CART_KEY, cart); state.coupon = ''; state.quote = null;
+        $('#f-coupon').value = ''; $('#coupon-msg').textContent = ''; $('#f-notes').value = '';
+      }
       renderAll(false);
       closeDrawer();
       $('#success-code').textContent = r.code;
@@ -303,14 +352,40 @@
       $('#success').hidden = false;
       $('#success').dataset.code = r.code;
       $('#success').dataset.phone = r.phone;
-    }).catch(function (e) {
-      err.textContent = e.message;
-      refreshMenu();
-    }).then(function () {
-      $('span', btn).textContent = 'تأكيد الطلب';
-      renderSummary();
-    });
   }
+
+  function renderSavedOrders() {
+    var saved = load(ORD_KEY, []);
+    if (!Array.isArray(saved)) { saved = []; }
+    var box = $('#saved-orders');
+    box.hidden = !saved.length;
+    box.innerHTML = saved.length ? '<p class="muted">طلبات محفوظة على هذا الجهاز فقط:</p>' + saved.map(function (o, i) {
+      return '<button class="btn btn-light" type="button" data-saved-order="' + i + '"><span dir="ltr">' + esc(o.code) + '</span></button> ';
+    }).join('') : '';
+  }
+  $('#recover-order').addEventListener('click', function () {
+    var attempt = memoryAttempt;
+    try { attempt = JSON.parse(sessionStorage.getItem('wb_order_attempt') || 'null') || attempt; } catch (e) { /* unavailable */ }
+    if (!attempt) { return; }
+    var previous;
+    try { previous = JSON.parse(attempt.fingerprint); } catch (e) { toast('تعذر قراءة بيانات المحاولة'); return; }
+    var button = this; button.disabled = true;
+    api('order_recover', { request_token: attempt.token, phone: previous.phone }).then(function (r) {
+      if (!r.found) {
+        memoryAttempt = null; try { sessionStorage.removeItem('wb_order_attempt'); } catch (_) {}
+        $('#recover-order').hidden = true; $('#recover-help').hidden = true;
+        toast('لم يُسجل الطلب السابق، يمكنك إرسال طلب جديد.'); return;
+      }
+      var currentItems = cartEntries().map(function (e) { return { id: e.p.id, qty: e.q }; });
+      finishOrder(r.order, { name: previous.name, phone: previous.phone, address: previous.address, zone: previous.zone_id }, JSON.stringify(currentItems) === JSON.stringify(previous.items));
+    }).catch(function (e) { toast(e.message); }).then(function () { button.disabled = false; });
+  });
+  $('#saved-orders').addEventListener('click', function (e) {
+    var button = e.target.closest('[data-saved-order]');
+    if (!button) { return; }
+    var list = load(ORD_KEY, []), item = list[Number(button.dataset.savedOrder)];
+    if (item && item.code && item.phone) { trackWith(item.code, item.phone); }
+  });
 
   /* ---------- تتبع الطلب ---------- */
   function renderTrack(o) {
@@ -450,6 +525,7 @@
   onScroll();
 
   /* ---------- البدء ---------- */
+  try { if (sessionStorage.getItem('wb_order_attempt')) { $('#recover-order').hidden = false; $('#recover-help').hidden = false; } } catch (e) { /* unavailable */ }
   var profile = load(PROFILE_KEY, {});
   $('#f-name').value = profile.name || '';
   $('#f-phone').value = profile.phone || '';
@@ -459,6 +535,7 @@
     $('#track-code').value = orders[0].code;
     $('#track-phone').value = orders[0].phone;
   }
+  renderSavedOrders();
   renderNotices();
   renderZones();
   renderAll(true);

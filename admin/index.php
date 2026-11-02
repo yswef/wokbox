@@ -6,6 +6,8 @@ if (!file_exists(ROOT . '/install.lock')) {
 }
 header('X-Robots-Tag: noindex, nofollow');
 header('Cache-Control: no-store');
+try { $share = settings_all(); $siteUrl = public_site_url(); } catch (Throwable $e) { $share = default_settings(); $siteUrl = ''; }
+function e($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 $ver = function ($f) {
     return @filemtime(__DIR__ . '/../assets/' . $f) ?: 1;
 };
@@ -16,7 +18,17 @@ $ver = function ($f) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
-<title>لوحة الإدارة</title>
+<title>لوحة الإدارة — <?= e($share['store_name']) ?></title>
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="<?= e($share['store_name']) ?>">
+<meta property="og:title" content="لوحة الإدارة — <?= e($share['store_name']) ?>">
+<meta property="og:description" content="لوحة إدارة <?= e($share['store_name']) ?>">
+<?php if ($siteUrl !== ''): ?>
+<meta property="og:url" content="<?= e($siteUrl . '/admin/') ?>">
+<meta property="og:image" content="<?= e($siteUrl . '/social-image.php?v=' . substr(hash('sha256', $share['logo']), 0, 12)) ?>">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="<?= e($siteUrl . '/social-image.php?v=' . substr(hash('sha256', $share['logo']), 0, 12)) ?>">
+<?php endif; ?>
 <meta name="theme-color" content="#2b221c">
 <link rel="icon" href="../assets/logo-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
