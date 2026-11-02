@@ -28,6 +28,9 @@ $wa = function ($n) {
     return $n;
 };
 $bootJson = json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+// Set site_url in config.php to the public HTTPS store URL for reliable social previews.
+$siteUrl = rtrim((string)cfg('site_url', ''), '/');
+if ($siteUrl !== '' && !preg_match('~^https?://[a-z0-9.-]+(?::[0-9]+)?(?:/[^?#]*)?$~i', $siteUrl)) { $siteUrl = ''; }
 $logoUrl = $S['logo'] ? 'uploads/' . $S['logo'] : 'assets/logo.png?v=' . $ver('logo.png');
 ?>
 <!doctype html>
@@ -37,11 +40,23 @@ $logoUrl = $S['logo'] ? 'uploads/' . $S['logo'] : 'assets/logo.png?v=' . $ver('l
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title><?= e($S['store_name']) ?></title>
 <meta name="description" content="<?= e($S['store_name'] . ' — ' . $S['tagline']) ?>">
+<?php if ($siteUrl !== ''): ?>
+<link rel="canonical" href="<?= e($siteUrl . '/') ?>">
+<meta property="og:url" content="<?= e($siteUrl . '/') ?>">
+<?php endif; ?>
+<meta property="og:site_name" content="<?= e($S['store_name']) ?>">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="ar_AR">
 <meta property="og:title" content="<?= e($S['store_name']) ?>">
 <meta property="og:description" content="<?= e($S['tagline'] . ' — ' . $S['hours']) ?>">
-<meta property="og:image" content="<?= e($logoUrl) ?>">
+<?php if ($siteUrl !== ''): ?>
+<meta property="og:image" content="<?= e($siteUrl . '/' . $logoUrl) ?>">
+<meta property="og:image:alt" content="<?= e($S['store_name']) ?>">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="<?= e($S['store_name']) ?>">
+<meta name="twitter:description" content="<?= e($S['tagline']) ?>">
+<meta name="twitter:image" content="<?= e($siteUrl . '/' . $logoUrl) ?>">
+<?php endif; ?>
 <meta name="theme-color" content="#d65a1c">
 <link rel="icon" href="<?= e($logoUrl) ?>">
 <link rel="apple-touch-icon" href="<?= e($logoUrl) ?>">
@@ -112,10 +127,12 @@ $logoUrl = $S['logo'] ? 'uploads/' . $S['logo'] : 'assets/logo.png?v=' . $ver('l
         <h2>متابعة الطلب</h2>
         <p class="muted">أدخل رقم الطلب ورقم الهاتف الذي استخدمته عند الطلب.</p>
         <form id="track-form" class="track-form" autocomplete="off">
-          <label>رقم الطلب<input id="track-code" placeholder="WB-123456" dir="ltr" required></label>
+          <label>رقم الطلب<input id="track-code" placeholder="WB-XXXXXXXXXXXX" dir="ltr" required></label>
           <label>رقم الهاتف<input id="track-phone" type="tel" inputmode="tel" placeholder="7XXXXXXXX" dir="ltr" required></label>
           <button class="btn btn-primary" type="submit">متابعة</button>
         </form>
+        <button class="btn btn-light" type="button" id="track-notify">تفعيل تنبيهات التتبع</button>
+        <p class="muted">تعمل التنبيهات أثناء فتح صفحة التتبع والسماح بإشعارات المتصفح.</p>
         <div id="track-result" aria-live="polite"></div>
       </div>
     </div>

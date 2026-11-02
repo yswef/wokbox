@@ -7,6 +7,9 @@ if (empty($_SESSION['admin'])) {
     http_response_code(401);
     exit('سجّل الدخول من لوحة الإدارة أولًا ثم افتح هذه الصفحة.');
 }
+$check = db()->prepare('SELECT 1 FROM admins WHERE id = ?');
+$check->execute([$_SESSION['admin']]);
+if (!$check->fetchColumn()) { http_response_code(401); exit('غير مصرح'); }
 header('Content-Type: text/plain; charset=utf-8');
 header('Cache-Control: no-store');
 

@@ -6,7 +6,7 @@ require __DIR__ . '/../lib/backup.php';
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 
-const ORDER_STATUSES = ['new', 'preparing', 'ready', 'out', 'delivered', 'cancelled'];
+const ORDER_STATUSES = ['new', 'confirmed', 'preparing', 'ready', 'out', 'delivered', 'cancelled'];
 
 function inp($k, $d = '')
 {
@@ -62,6 +62,9 @@ function need_admin()
     if (!is_admin()) {
         fail('انتهت الجلسة، سجّل الدخول من جديد.', 401);
     }
+    $st = db()->prepare('SELECT 1 FROM admins WHERE id = ?');
+    $st->execute([$_SESSION['admin']]);
+    if (!$st->fetchColumn()) { $_SESSION = []; session_destroy(); fail('انتهت الجلسة، سجّل الدخول من جديد.', 401); }
     $sent = (string)($_POST['csrf'] ?? '');
     if ($sent === '' || !hash_equals((string)($_SESSION['csrf'] ?? ''), $sent)) {
         fail('رمز الأمان غير صالح، حدّث الصفحة.', 403);
@@ -129,7 +132,11 @@ try {
         if (!is_admin()) {
             fail('غير مسجل', 401);
         }
-        out(['csrf' => $_SESSION['csrf']]);
+        $st = $pdo->prepare('SELECT username FROM admins WHERE id = ?');
+        $st->execute([$_SESSION['admin']]);
+        $username = $st->fetchColumn();
+        if ($username === false) { $_SESSION = []; session_destroy(); fail('غير مسجل', 401); }
+        out(['csrf' => $_SESSION['csrf'], 'username' => $username]);
     }
 
     need_admin();
@@ -475,35 +482,41 @@ try {
             if (!in_array($status, ORDER_STATUSES, true)) {
                 throw new UserError('حالة غير صالحة.');
             }
-            $st = $pdo->prepare('SELECT status, coupon_code FROM orders WHERE id = ?');
-            $st->execute([$id]);
-            $o = $st->fetch();
-            if (!$o) {
-                throw new UserError('الطلب غير موجود.');
-            }
             $pdo->beginTransaction();
             try {
-                $pdo->prepare('UPDATE orders SET status = ?, cancel_requested = 0, updated_at = ? WHERE id = ?')
-                    ->execute([$status, date('Y-m-d H:i:s'), $id]);
-                if ($o['coupon_code'] !== '') {
-                    if ($status === 'cancelled' && $o['status'] !== 'cancelled') {
+                $st = $pdo->prepare('SELECT status, coupon_code, cancel_requested FROM orders WHERE id = ? FOR UPDATE');
+                $st->execute([$id]);
+                $o = $st->fetch();
+                if (!$o) { throw new UserError('الطلب غير موجود.'); }
+                $expected = inp('expected_status');
+                if ($expected !== '' && $expected !== $o['status']) {
+                    throw new UserError('غيّر مدير آخر حالة الطلب. حدّث القائمة أولًا.');
+                }
+                if ($status !== $o['status'] && !in_array($status, order_next_statuses($o['status']), true)) {
+                    throw new UserError('انتقال الحالة غير مسموح. حدّث القائمة واختر المرحلة التالية.');
+                }
+                if ($status !== $o['status'] && $status !== 'cancelled' && (int)$o['cancel_requested']) {
+                    throw new UserError('يوجد طلب إلغاء، اقبله أو ارفضه قبل تغيير الحالة.');
+                }
+                if ($status !== $o['status']) {
+                    $pdo->prepare('UPDATE orders SET status = ?, cancel_requested = 0, updated_at = ? WHERE id = ?')
+                        ->execute([$status, date('Y-m-d H:i:s'), $id]);
+                    if ($status === 'cancelled' && $o['coupon_code'] !== '') {
                         $pdo->prepare('UPDATE coupons SET used_count = GREATEST(0, used_count - 1) WHERE code = ?')->execute([$o['coupon_code']]);
-                    } elseif ($status !== 'cancelled' && $o['status'] === 'cancelled') {
-                        $pdo->prepare('UPDATE coupons SET used_count = used_count + 1 WHERE code = ?')->execute([$o['coupon_code']]);
                     }
                 }
                 $pdo->commit();
             } catch (Throwable $e) {
-                if ($pdo->inTransaction()) {
-                    $pdo->rollBack();
-                }
+                if ($pdo->inTransaction()) { $pdo->rollBack(); }
                 throw $e;
             }
             out(true);
             break;
 
         case 'order_reject_cancel':
-            $pdo->prepare('UPDATE orders SET cancel_requested = 0, updated_at = ? WHERE id = ?')->execute([date('Y-m-d H:i:s'), inp_int('id')]);
+            $st = $pdo->prepare("UPDATE orders SET cancel_requested = 0, updated_at = ? WHERE id = ? AND status = 'new' AND cancel_requested = 1");
+            $st->execute([date('Y-m-d H:i:s'), inp_int('id')]);
+            if (!$st->rowCount()) { throw new UserError('تغير الطلب أو لم يعد طلب الإلغاء موجودًا. حدّث القائمة.'); }
             out(true);
             break;
 
@@ -589,6 +602,54 @@ try {
                 'pending'    => (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE status = 'new'")->fetchColumn(),
                 'customers'  => (int)$pdo->query('SELECT COUNT(DISTINCT phone) FROM orders')->fetchColumn(),
             ]);
+            break;
+
+        /* حسابات المديرين: جميعها تملك صلاحيات كاملة. */
+        case 'admins_list':
+            out(['admins' => $pdo->query('SELECT id, username, created_at FROM admins ORDER BY id')->fetchAll(), 'current_id' => (int)$_SESSION['admin']]);
+            break;
+
+        case 'admin_create':
+            $username = inp('username');
+            $password = (string)($_POST['password'] ?? '');
+            if (!preg_match('/^[A-Za-z0-9_.-]{3,30}$/', $username)) {
+                throw new UserError('اسم المستخدم: 3 إلى 30 حرفًا إنجليزيًا أو أرقامًا.');
+            }
+            if (strlen($password) < 12 || strlen($password) > 72) {
+                throw new UserError('كلمة المرور يجب أن تتكون من 12 إلى 72 حرفًا.');
+            }
+            try {
+                $pdo->prepare('INSERT INTO admins (username, password_hash, created_at) VALUES (?,?,?)')
+                    ->execute([$username, password_hash($password, PASSWORD_DEFAULT), date('Y-m-d H:i:s')]);
+            } catch (PDOException $e) {
+                if ($e->getCode() === '23000') { throw new UserError('اسم المستخدم مستخدم بالفعل.'); }
+                throw $e;
+            }
+            out(true);
+            break;
+
+        case 'admin_delete':
+            $id = inp_int('id');
+            if ($id === (int)$_SESSION['admin']) { throw new UserError('لا يمكنك حذف حسابك الحالي.'); }
+            $password = (string)($_POST['password'] ?? '');
+            $pdo->beginTransaction();
+            try {
+                $admins = $pdo->query('SELECT id, password_hash FROM admins ORDER BY id FOR UPDATE')->fetchAll();
+                $hash = null;
+                foreach ($admins as $admin) {
+                    if ((int)$admin['id'] === (int)$_SESSION['admin']) { $hash = $admin['password_hash']; }
+                }
+                if (!$hash || !password_verify($password, $hash)) { throw new UserError('كلمة المرور الحالية غير صحيحة.'); }
+                if (count($admins) <= 1) { throw new UserError('لا يمكن حذف آخر مدير.'); }
+                $st = $pdo->prepare('DELETE FROM admins WHERE id = ?');
+                $st->execute([$id]);
+                if (!$st->rowCount()) { throw new UserError('حساب المدير غير موجود.'); }
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) { $pdo->rollBack(); }
+                throw $e;
+            }
+            out(true);
             break;
 
         /* ---------- الإعدادات ---------- */

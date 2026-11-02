@@ -6,5 +6,7 @@ return [
     'db_user'    => 'if0_43336211',
     'db_pass'    => 'ztEwAwrUWGqFH',
     'db_charset' => 'utf8mb4',
+    // الرابط العام للمتجر دون / في النهاية، لصور معاينة واتساب ومحركات البحث.
+    'site_url'   => '',
     'timezone'   => 'Asia/Aden',
 ];

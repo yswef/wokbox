@@ -6,6 +6,9 @@ if (empty($_SESSION['admin'])) {
     http_response_code(401);
     exit('غير مصرح');
 }
+$check = db()->prepare('SELECT 1 FROM admins WHERE id = ?');
+$check->execute([$_SESSION['admin']]);
+if (!$check->fetchColumn()) { http_response_code(401); exit('غير مصرح'); }
 header('Cache-Control: no-store');
 header('X-Robots-Tag: noindex');
 
@@ -27,7 +30,7 @@ $cur = setting('currency');
 $n = function ($v) {
     return number_format((int)$v);
 };
-$statusLabels = ['new' => 'جديد', 'preparing' => 'قيد التجهيز', 'ready' => 'جاهز', 'out' => 'خرج للتوصيل', 'delivered' => 'تم التسليم', 'cancelled' => 'ملغي'];
+$statusLabels = ['new' => 'جديد', 'confirmed' => 'مؤكد', 'preparing' => 'قيد التجهيز', 'ready' => 'جاهز', 'out' => 'خرج للتوصيل', 'delivered' => 'تم التسليم', 'cancelled' => 'ملغي'];
 ?>
 <!doctype html>
 <html lang="ar" dir="rtl">
