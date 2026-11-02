@@ -173,32 +173,32 @@ try {
             $avail = inp_int('available', 1) ? 1 : 0;
             $sort = inp_int('sort_order', 0);
             $old = null;
-            if ($id) {
-                $st = $pdo->prepare('SELECT * FROM products WHERE id = ?');
-                $st->execute([$id]);
-                $old = $st->fetch();
-                if (!$old) {
-                    throw new UserError('المنتج غير موجود.');
+            $newImage = '';
+            if (has_upload('image')) { $newImage = save_image($_FILES['image']); }
+            try {
+                $pdo->beginTransaction();
+                if ($id) {
+                    $st = $pdo->prepare('SELECT * FROM products WHERE id = ? FOR UPDATE');
+                    $st->execute([$id]);
+                    $old = $st->fetch();
+                    if (!$old) { throw new UserError('السجل غير موجود.'); }
                 }
-            }
-            $image = $old ? $old['image'] : '';
-            if (has_upload('image')) {
-                $new = save_image($_FILES['image']);
+                $image = $newImage !== '' ? $newImage : ($old ? $old['image'] : '');
+                if ($newImage === '' && $old && inp_int('remove_image')) { $image = ''; }
                 if ($old) {
-                    delete_image($old['image']);
+                    $pdo->prepare('UPDATE products SET category_id=?, name=?, description=?, price=?, emoji=?, image=?, available=?, sort_order=? WHERE id=?')
+                        ->execute([$cat, $name, $desc, $price, $emoji, $image, $avail, $sort, $id]);
+                } else {
+                    $pdo->prepare('INSERT INTO products (category_id, name, description, price, emoji, image, available, sort_order, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
+                        ->execute([$cat, $name, $desc, $price, $emoji, $image, $avail, $sort, date('Y-m-d H:i:s')]);
                 }
-                $image = $new;
-            } elseif ($old && inp_int('remove_image')) {
-                delete_image($old['image']);
-                $image = '';
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) { $pdo->rollBack(); }
+                if ($newImage !== '') { delete_image($newImage); }
+                throw $e;
             }
-            if ($old) {
-                $pdo->prepare('UPDATE products SET category_id=?, name=?, description=?, price=?, emoji=?, image=?, available=?, sort_order=? WHERE id=?')
-                    ->execute([$cat, $name, $desc, $price, $emoji, $image, $avail, $sort, $id]);
-            } else {
-                $pdo->prepare('INSERT INTO products (category_id, name, description, price, emoji, image, available, sort_order, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
-                    ->execute([$cat, $name, $desc, $price, $emoji, $image, $avail, $sort, date('Y-m-d H:i:s')]);
-            }
+            if ($old && $old['image'] !== $image) { delete_unused_image($old['image']); }
             out(true);
             break;
 
@@ -215,10 +215,14 @@ try {
             if ($img === false) {
                 throw new UserError('المنتج غير موجود.');
             }
-            delete_image((string)$img);
-            $pdo->prepare('DELETE FROM products WHERE id = ?')->execute([$id]);
-            $pdo->prepare('DELETE FROM offers WHERE product_id = ?')->execute([$id]);
-            $pdo->prepare('UPDATE ads SET product_id = NULL WHERE product_id = ?')->execute([$id]);
+            $pdo->beginTransaction();
+            try {
+                $pdo->prepare('DELETE FROM products WHERE id = ?')->execute([$id]);
+                $pdo->prepare('DELETE FROM offers WHERE product_id = ?')->execute([$id]);
+                $pdo->prepare('UPDATE ads SET product_id = NULL WHERE product_id = ?')->execute([$id]);
+                $pdo->commit();
+            } catch (Throwable $e) { if ($pdo->inTransaction()) { $pdo->rollBack(); } throw $e; }
+            delete_unused_image((string)$img);
             out(true);
             break;
 
@@ -317,32 +321,32 @@ try {
             }
             $active = inp_int('active', 1) ? 1 : 0;
             $old = null;
-            if ($id) {
-                $st = $pdo->prepare('SELECT * FROM ads WHERE id = ?');
-                $st->execute([$id]);
-                $old = $st->fetch();
-                if (!$old) {
-                    throw new UserError('الإعلان غير موجود.');
+            $newImage = '';
+            if (has_upload('image')) { $newImage = save_image($_FILES['image']); }
+            try {
+                $pdo->beginTransaction();
+                if ($id) {
+                    $st = $pdo->prepare('SELECT * FROM ads WHERE id = ? FOR UPDATE');
+                    $st->execute([$id]);
+                    $old = $st->fetch();
+                    if (!$old) { throw new UserError('السجل غير موجود.'); }
                 }
-            }
-            $image = $old ? $old['image'] : '';
-            if (has_upload('image')) {
-                $new = save_image($_FILES['image']);
+                $image = $newImage !== '' ? $newImage : ($old ? $old['image'] : '');
+                if ($newImage === '' && $old && inp_int('remove_image')) { $image = ''; }
                 if ($old) {
-                    delete_image($old['image']);
+                    $pdo->prepare('UPDATE ads SET title=?, description=?, image=?, product_id=?, active=? WHERE id=?')
+                        ->execute([$title, $desc, $image, $product, $active, $id]);
+                } else {
+                    $pdo->prepare('INSERT INTO ads (title, description, image, product_id, active, created_at) VALUES (?,?,?,?,?,?)')
+                        ->execute([$title, $desc, $image, $product, $active, date('Y-m-d H:i:s')]);
                 }
-                $image = $new;
-            } elseif ($old && inp_int('remove_image')) {
-                delete_image($old['image']);
-                $image = '';
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) { $pdo->rollBack(); }
+                if ($newImage !== '') { delete_image($newImage); }
+                throw $e;
             }
-            if ($old) {
-                $pdo->prepare('UPDATE ads SET title=?, description=?, image=?, product_id=?, active=? WHERE id=?')
-                    ->execute([$title, $desc, $image, $product, $active, $id]);
-            } else {
-                $pdo->prepare('INSERT INTO ads (title, description, image, product_id, active, created_at) VALUES (?,?,?,?,?,?)')
-                    ->execute([$title, $desc, $image, $product, $active, date('Y-m-d H:i:s')]);
-            }
+            if ($old && $old['image'] !== $image) { delete_unused_image($old['image']); }
             out(true);
             break;
 
@@ -355,10 +359,8 @@ try {
             $st = $pdo->prepare('SELECT image FROM ads WHERE id = ?');
             $st->execute([inp_int('id')]);
             $img = $st->fetchColumn();
-            if ($img !== false) {
-                delete_image((string)$img);
-            }
             $pdo->prepare('DELETE FROM ads WHERE id = ?')->execute([inp_int('id')]);
+            if ($img !== false) { delete_unused_image((string)$img); }
             out(true);
             break;
 
@@ -615,8 +617,8 @@ try {
             if (!preg_match('/^[A-Za-z0-9_.-]{3,30}$/', $username)) {
                 throw new UserError('اسم المستخدم: 3 إلى 30 حرفًا إنجليزيًا أو أرقامًا.');
             }
-            if (strlen($password) < 12 || strlen($password) > 72) {
-                throw new UserError('كلمة المرور يجب أن تتكون من 12 إلى 72 حرفًا.');
+            if (!valid_admin_password($password)) {
+                throw new UserError('كلمة المرور يجب ألا تقل عن 12 حرفًا ولا تزيد عن 72 بايت.');
             }
             try {
                 $pdo->prepare('INSERT INTO admins (username, password_hash, created_at) VALUES (?,?,?)')
@@ -661,6 +663,21 @@ try {
             break;
 
         case 'settings_save':
+            $schedule = inp('schedule_enabled', '0') === '1' ? '1' : '0';
+            $start = inp('opens_at', '18:00'); $end = inp('closes_at', '23:30');
+            if (!valid_time($start) || !valid_time($end) || $start === $end) { throw new UserError('أدخل وقتي فتح وإغلاق صحيحين ومختلفين.'); }
+            $url = rtrim(inp('site_url'), '/');
+            if ($url !== '') {
+                $parts = parse_url($url);
+                if (!$parts || !in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true) || empty($parts['host']) || isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment']) || !preg_match('/^[a-z0-9.-]+$/i', $parts['host'])) { throw new UserError('أدخل رابط متجر صحيحًا يبدأ بـ https:// دون معاملات.'); }
+            }
+            $newLogo = ''; $oldLogo = '';
+            try {
+                $pdo->beginTransaction();
+            set_setting('schedule_enabled', $schedule);
+            set_setting('opens_at', $start);
+            set_setting('closes_at', $end);
+            set_setting('site_url', $url);
             $text = ['store_name' => 100, 'tagline' => 160, 'hours' => 120, 'currency' => 20, 'payment_note' => 160];
             foreach ($text as $k => $max) {
                 if (isset($_POST[$k])) {
@@ -685,13 +702,46 @@ try {
                 set_setting('open', $_POST['open'] === '1' ? '1' : '0');
             }
             if (has_upload('logo')) {
-                $new = save_image($_FILES['logo']);
-                delete_image(setting('logo'));
-                set_setting('logo', $new);
+                $newLogo = save_image($_FILES['logo']);
+                $oldLogo = setting('logo');
+                set_setting('logo', $newLogo);
             } elseif (inp_int('remove_logo')) {
-                delete_image(setting('logo'));
+                $oldLogo = setting('logo');
                 set_setting('logo', '');
             }
+            $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) { $pdo->rollBack(); }
+                if ($newLogo !== '') { delete_image($newLogo); }
+                throw $e;
+            }
+            if ($oldLogo !== '') { delete_unused_image($oldLogo); }
+            out(true);
+            break;
+
+        case 'store_reset':
+            if (inp('confirmation') !== 'حذف البيانات') { throw new UserError('اكتب عبارة التأكيد كما تظهر في الصفحة.'); }
+            throttle('reset:' . client_ip(), 5, 900);
+            $st = $pdo->prepare('SELECT password_hash FROM admins WHERE id = ?');
+            $st->execute([$_SESSION['admin']]);
+            $hash = $st->fetchColumn();
+            if (!$hash || !password_verify((string)($_POST['password'] ?? ''), $hash)) { throw new UserError('كلمة المرور الحالية غير صحيحة.'); }
+            if (!class_exists('ZipArchive')) { throw new UserError('يلزم دعم ZIP لحفظ نسخة احتياطية بالصور قبل الحذف.'); }
+            $backupDir = ROOT . '/storage/backups';
+            if (!is_dir($backupDir) && !mkdir($backupDir, 0755, true) && !is_dir($backupDir)) { throw new UserError('تعذر إنشاء مجلد النسخ الاحتياطية.'); }
+            ensure_order_requests_table();
+            $pdo->beginTransaction();
+            try {
+                // Block new orders and require the owner to close the store first.
+                $st = $pdo->query("SELECT svalue FROM settings WHERE skey = 'open' FOR UPDATE");
+                if ($st->fetchColumn() !== '0') { throw new UserError('أغلق استقبال الطلبات يدويًا من الإعدادات قبل حذف البيانات.'); }
+                list($backupPath, $backupName, $backupMime) = build_backup_file($backupDir);
+                if ($backupMime !== 'application/zip' || !is_file($backupPath) || filesize($backupPath) === 0) { throw new UserError('تعذر حفظ نسخة كاملة قبل الحذف.'); }
+                $images = array_merge($pdo->query("SELECT image FROM products WHERE image <> ''")->fetchAll(PDO::FETCH_COLUMN), $pdo->query("SELECT image FROM ads WHERE image <> ''")->fetchAll(PDO::FETCH_COLUMN));
+                foreach (['order_requests', 'order_items', 'orders', 'offers', 'ads', 'products', 'categories', 'zones', 'coupons'] as $table) { $pdo->exec("DELETE FROM `$table`"); }
+                $pdo->commit();
+            } catch (Throwable $e) { if ($pdo->inTransaction()) { $pdo->rollBack(); } throw $e; }
+            foreach (array_unique($images) as $image) { delete_unused_image($image); }
             out(true);
             break;
 
@@ -703,8 +753,8 @@ try {
                 throw new UserError('كلمة المرور الحالية غير صحيحة.');
             }
             $new = (string)($_POST['new'] ?? '');
-            if (strlen($new) < 8) {
-                throw new UserError('كلمة المرور الجديدة يجب ألا تقل عن 8 أحرف.');
+            if (!valid_admin_password($new)) {
+                throw new UserError('كلمة المرور الجديدة يجب ألا تقل عن 12 حرفًا ولا تزيد عن 72 بايت.');
             }
             $pdo->prepare('UPDATE admins SET password_hash = ? WHERE id = ?')
                 ->execute([password_hash($new, PASSWORD_DEFAULT), $u['id']]);

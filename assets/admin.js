@@ -427,7 +427,11 @@
       <form class="panel" id="set-form"><div class="settings-grid">
         <label class="f">اسم المتجر<input name="store_name" value="${esc(s.store_name)}"></label>
         <label class="f">الشعار الفرعي<input name="tagline" value="${esc(s.tagline)}"></label>
-        <label class="f">ساعات العمل<input name="hours" value="${esc(s.hours)}"></label>
+        <label class="f">وصف ساعات العمل (عند تعطيل الجدولة)<input name="hours" value="${esc(s.hours)}"></label>
+        <label class="f">الإغلاق التلقائي حسب ساعات العمل<select name="schedule_enabled"><option value="0"${s.schedule_enabled !== '1' ? ' selected' : ''}>معطّل</option><option value="1"${s.schedule_enabled === '1' ? ' selected' : ''}>مفعّل يوميًا</option></select></label>
+        <label class="f">يفتح الساعة<input type="time" name="opens_at" value="${esc(s.opens_at)}" required></label>
+        <label class="f">يغلق الساعة<input type="time" name="closes_at" value="${esc(s.closes_at)}" required></label>
+        <label class="f">الرابط العام الكامل للمتجر (لمعاينة واتساب)<input type="url" name="site_url" value="${esc(s.site_url || '')}" dir="ltr" placeholder="https://example.com/shop"></label>
         <label class="f">حالة المتجر<select name="open"><option value="1"${s.open === '1' ? ' selected' : ''}>استقبال الطلبات مفتوح</option><option value="0"${s.open !== '1' ? ' selected' : ''}>الطلبات متوقفة مؤقتًا</option></select></label>
         <label class="f">رقم التواصل 1 (مع مفتاح الدولة)<input name="contact_1" value="${esc(s.contact_1)}" dir="ltr" inputmode="numeric" placeholder="967XXXXXXXXX"></label>
         <label class="f">رقم التواصل 2<input name="contact_2" value="${esc(s.contact_2)}" dir="ltr" inputmode="numeric"></label>
@@ -437,10 +441,16 @@
         <label class="f">ملاحظة الدفع (تظهر عند الطلب)<input name="payment_note" value="${esc(s.payment_note)}"></label>
         <div class="f">شعار المتجر<input type="file" name="logo" accept="image/*">${s.logo ? `<div class="cur-img"><img src="../uploads/${esc(s.logo)}" alt=""><label class="chk"><input type="checkbox" name="remove_logo" value="1"> حذف الشعار</label></div>` : ''}</div>
       </div><div class="form-error" id="set-err"></div><button class="btn btn-primary" type="submit">حفظ الإعدادات</button></form>
+      <p class="muted">المواعيد يومية بتوقيت المتجر؛ الإغلاق اليدوي يتقدم على الجدول. اختر وقت إغلاق مختلفًا عن وقت الفتح، ويمكن أن يمتد الدوام بعد منتصف الليل.</p>
       <form class="panel" id="pw-form"><h3>تغيير كلمة المرور</h3><div class="settings-grid">
         <label class="f">كلمة المرور الحالية<input name="current" type="password" autocomplete="current-password" dir="ltr"></label>
-        <label class="f">كلمة المرور الجديدة (8 أحرف فأكثر)<input name="new" type="password" autocomplete="new-password" dir="ltr"></label></div>
-        <div class="form-error" id="pw-err"></div><button class="btn btn-light" type="submit">تغيير كلمة المرور</button></form>`;
+        <label class="f">كلمة المرور الجديدة (12 حرفًا فأكثر)<input name="new" type="password" autocomplete="new-password" minlength="12" maxlength="72" dir="ltr"></label></div>
+        <div class="form-error" id="pw-err"></div><button class="btn btn-light" type="submit">تغيير كلمة المرور</button></form>
+      <form class="panel" id="reset-form"><h3>حذف بيانات المتجر التجريبية</h3>
+        <p class="muted">يحذف الطلبات والمنتجات والأقسام والعروض والمناطق والكوبونات والإعلانات وصورها. يبقي حسابات المديرين والإعدادات والشعار. تحفظ نسخة تلقائية في مجلد النسخ الاحتياطية قبل الحذف؛ تأكد من تنزيل نسخة أيضًا. يجب إغلاق استقبال الطلبات يدويًا من الإعدادات وحفظها أولًا، وإيقاف التعديلات قبل الحذف.</p>
+        <label class="f">اكتب حذف البيانات للتأكيد<input name="confirmation" autocomplete="off" required></label>
+        <label class="f">كلمة مرور حسابك<input name="password" type="password" autocomplete="current-password" required></label>
+        <div class="form-error" id="reset-err"></div><button class="btn btn-danger" type="submit">حذف بيانات المتجر</button></form>`;
     $('#set-form').onsubmit = async e => {
       e.preventDefault();
       const fd = new FormData(e.target);
@@ -452,6 +462,17 @@
         await loadMeta();
         render('settings');
       } catch (err) { $('#set-err').textContent = err.message; }
+    };
+    $('#reset-form').onsubmit = async e => {
+      e.preventDefault();
+      if (!confirm('سيتم حذف محتوى المتجر والطلبات. هل أنت متأكد؟')) return;
+      const button = e.target.querySelector('button');
+      const fd = new FormData(e.target);
+      button.disabled = true;
+      try {
+        await api('store_reset', { confirmation: fd.get('confirmation'), password: fd.get('password') });
+        toast('تم حذف بيانات المتجر'); lastId = null; render('settings');
+      } catch (err) { $('#reset-err').textContent = err.message; button.disabled = false; }
     };
     $('#pw-form').onsubmit = async e => {
       e.preventDefault();
@@ -494,7 +515,7 @@
     const s = await api('settings_get');
     root.innerHTML = `<div class="bar"><h2>النسخ الاحتياطي</h2></div>
       <div class="panel"><h3>تنزيل نسخة كاملة</h3>
-        <p class="muted">تشمل المنتجات والأقسام والعروض والإعلانات والمناطق والأكواد والطلبات والعملاء والإعدادات وصور المنتجات، في ملف ZIP واحد. لا تشمل كلمة مرور الإدارة.</p>
+        <p class="muted">تشمل المنتجات والأقسام والعروض والإعلانات والمناطق والأكواد والطلبات والعملاء والإعدادات وصور المنتجات عند توفر ZIP. بدون دعم ZIP يتم تنزيل JSON للبيانات فقط. لا تشمل حسابات الإدارة.</p>
         <p>آخر نسخة تم تنزيلها: <b>${esc(s.last_backup || 'لم تُنزَّل نسخة بعد')}</b></p>
         <button class="btn btn-primary" id="bk-down">تنزيل النسخة الاحتياطية</button></div>
       <div class="panel"><h3>استعادة نسخة</h3>

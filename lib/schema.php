@@ -100,6 +100,7 @@ function schema_statements()
             qty INT UNSIGNED NOT NULL,
             KEY idx_order (order_id)
         ) $opt",
+        order_requests_schema(),
         "CREATE TABLE IF NOT EXISTS throttle (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             bucket VARCHAR(80) NOT NULL,
@@ -110,7 +111,25 @@ function schema_statements()
     ];
 }
 
+function order_requests_schema()
+{
+    return "CREATE TABLE IF NOT EXISTS order_requests (
+        token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+        order_id INT UNSIGNED NOT NULL UNIQUE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+}
+
+function ensure_order_requests_table()
+{
+    try { db()->query('SELECT token_hash FROM order_requests LIMIT 0'); }
+    catch (PDOException $e) {
+        if ((int)($e->errorInfo[1] ?? 0) !== 1146) { throw $e; }
+        if (db()->inTransaction()) { throw new RuntimeException('order_requests table must be initialized before a transaction'); }
+        db()->exec(order_requests_schema());
+    }
+}
+
 function backup_tables()
 {
-    return ['settings', 'categories', 'products', 'offers', 'ads', 'zones', 'coupons', 'orders', 'order_items'];
+    return ['settings', 'categories', 'products', 'offers', 'ads', 'zones', 'coupons', 'orders', 'order_items', 'order_requests'];
 }

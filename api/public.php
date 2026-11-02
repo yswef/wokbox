@@ -33,6 +33,14 @@ try {
             out(create_order($in));
             break;
 
+        case 'order_recover':
+            throttle('recover:' . client_ip(), 30, 600);
+            $phone = normalize_phone($in['phone'] ?? '');
+            $token = strtolower((string)($in['request_token'] ?? ''));
+            $order = recover_order_request($token, $phone);
+            out(['found' => $order !== null, 'order' => $order]);
+            break;
+
         case 'track':
             throttle('track:' . client_ip(), 30, 600);
             $o = find_order_for_customer($in['code'] ?? '', $in['phone'] ?? '');

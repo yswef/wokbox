@@ -35,8 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!preg_match('/^[A-Za-z0-9_.-]{3,30}$/', $user)) {
             throw new UserError('اسم المستخدم: 3 إلى 30 حرفًا إنجليزيًا أو أرقامًا.');
         }
-        if (strlen($pass) < 8) {
-            throw new UserError('كلمة المرور يجب ألا تقل عن 8 أحرف.');
+        if (!valid_admin_password($pass)) {
+            throw new UserError('كلمة المرور يجب ألا تقل عن 12 حرفًا ولا تزيد عن 72 بايت.');
         }
         if ($pass !== (string)($_POST['password2'] ?? '')) {
             throw new UserError('كلمتا المرور غير متطابقتين.');
@@ -108,6 +108,6 @@ page('تثبيت المتجر', '<h1>تثبيت المتجر</h1><p>أدخل ب�
     . '<form method="post" autocomplete="off">'
     . '<label>اسم المتجر</label><input name="store_name" value="' . htmlspecialchars($_POST['store_name'] ?? 'WOK BOX | ووك بوكس') . '">'
     . '<label>اسم مستخدم الإدارة (إنجليزي)</label><input name="username" value="' . htmlspecialchars($_POST['username'] ?? 'admin') . '" dir="ltr">'
-    . '<label>كلمة المرور (8 أحرف فأكثر)</label><input type="password" name="password" dir="ltr">'
+    . '<label>كلمة المرور (12 حرفًا فأكثر)</label><input type="password" name="password" dir="ltr">'
     . '<label>تأكيد كلمة المرور</label><input type="password" name="password2" dir="ltr">'
     . '<button>تثبيت</button></form>');

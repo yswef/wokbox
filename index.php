@@ -29,8 +29,7 @@ $wa = function ($n) {
 };
 $bootJson = json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 // Set site_url in config.php to the public HTTPS store URL for reliable social previews.
-$siteUrl = rtrim((string)cfg('site_url', ''), '/');
-if ($siteUrl !== '' && !preg_match('~^https?://[a-z0-9.-]+(?::[0-9]+)?(?:/[^?#]*)?$~i', $siteUrl)) { $siteUrl = ''; }
+$siteUrl = public_site_url();
 $logoUrl = $S['logo'] ? 'uploads/' . $S['logo'] : 'assets/logo.png?v=' . $ver('logo.png');
 ?>
 <!doctype html>
@@ -50,12 +49,12 @@ $logoUrl = $S['logo'] ? 'uploads/' . $S['logo'] : 'assets/logo.png?v=' . $ver('l
 <meta property="og:title" content="<?= e($S['store_name']) ?>">
 <meta property="og:description" content="<?= e($S['tagline'] . ' — ' . $S['hours']) ?>">
 <?php if ($siteUrl !== ''): ?>
-<meta property="og:image" content="<?= e($siteUrl . '/' . $logoUrl) ?>">
+<meta property="og:image" content="<?= e($siteUrl . '/social-image.php?v=' . substr(hash('sha256', $logoUrl), 0, 12)) ?>">
 <meta property="og:image:alt" content="<?= e($S['store_name']) ?>">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="<?= e($S['store_name']) ?>">
 <meta name="twitter:description" content="<?= e($S['tagline']) ?>">
-<meta name="twitter:image" content="<?= e($siteUrl . '/' . $logoUrl) ?>">
+<meta name="twitter:image" content="<?= e($siteUrl . '/social-image.php?v=' . substr(hash('sha256', $logoUrl), 0, 12)) ?>">
 <?php endif; ?>
 <meta name="theme-color" content="#d65a1c">
 <link rel="icon" href="<?= e($logoUrl) ?>">
@@ -127,10 +126,13 @@ $logoUrl = $S['logo'] ? 'uploads/' . $S['logo'] : 'assets/logo.png?v=' . $ver('l
         <h2>متابعة الطلب</h2>
         <p class="muted">أدخل رقم الطلب ورقم الهاتف الذي استخدمته عند الطلب.</p>
         <form id="track-form" class="track-form" autocomplete="off">
-          <label>رقم الطلب<input id="track-code" placeholder="WB-XXXXXXXXXXXX" dir="ltr" required></label>
+          <label>رقم الطلب<input id="track-code" placeholder="WB-XXXXXXXX" dir="ltr" required></label>
           <label>رقم الهاتف<input id="track-phone" type="tel" inputmode="tel" placeholder="7XXXXXXXX" dir="ltr" required></label>
           <button class="btn btn-primary" type="submit">متابعة</button>
         </form>
+        <div id="saved-orders" hidden></div>
+        <button class="btn btn-light" type="button" id="recover-order" hidden>استعادة رد الطلب السابق</button>
+        <p class="muted" id="recover-help" hidden>إذا انقطع الاتصال بعد الإرسال، ابحث عن نتيجة المحاولة السابقة دون إنشاء طلب جديد.</p>
         <button class="btn btn-light" type="button" id="track-notify">تفعيل تنبيهات التتبع</button>
         <p class="muted">تعمل التنبيهات أثناء فتح صفحة التتبع والسماح بإشعارات المتصفح.</p>
         <div id="track-result" aria-live="polite"></div>
