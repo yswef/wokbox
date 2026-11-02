@@ -81,7 +81,9 @@ function clean_text($value, $max)
 
 function normalize_phone($raw)
 {
-    $d = preg_replace('/\D+/', '', (string)$raw);
+    $raw = strtr((string)$raw, ['٠'=>'0','١'=>'1','٢'=>'2','٣'=>'3','٤'=>'4','٥'=>'5','٦'=>'6','٧'=>'7','٨'=>'8','٩'=>'9','۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9']);
+    if (preg_match('/[^0-9+()\s-]/u', $raw)) { return ''; }
+    $d = preg_replace('/\D+/', '', $raw);
     if (strpos($d, '00') === 0) {
         $d = substr($d, 2);
     }
@@ -94,6 +96,11 @@ function normalize_phone($raw)
     return $d;
 }
 
+function valid_customer_phone($phone)
+{
+    return (bool)preg_match('/^7[0-9]{8}$/', $phone) && !preg_match('/^(\d)\1{8}$/', $phone);
+}
+
 function client_ip()
 {
     return substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45);
@@ -103,13 +110,26 @@ function throttle($bucket, $limit, $window)
 {
     $pdo = db();
     $now = time();
-    $pdo->prepare('DELETE FROM throttle WHERE created_at < ?')->execute([$now - 3600]);
-    $st = $pdo->prepare('SELECT COUNT(*) FROM throttle WHERE bucket = ? AND created_at > ?');
-    $st->execute([$bucket, $now - $window]);
-    if ((int)$st->fetchColumn() >= $limit) {
+    // Serialize checks for this bucket so concurrent requests cannot all pass the limit.
+    $lock = 'wb:' . substr(hash('sha256', $bucket), 0, 60);
+    $st = $pdo->prepare('SELECT GET_LOCK(?, 3)');
+    $st->execute([$lock]);
+    if ((int)$st->fetchColumn() !== 1) {
         throw new UserError('محاولات كثيرة، انتظر قليلًا ثم حاول مجددًا.');
     }
-    $pdo->prepare('INSERT INTO throttle (bucket, created_at) VALUES (?, ?)')->execute([$bucket, $now]);
+    try {
+        if (random_int(1, 100) === 1) {
+            $pdo->prepare('DELETE FROM throttle WHERE created_at < ? LIMIT 500')->execute([$now - 3600]);
+        }
+        $st = $pdo->prepare('SELECT COUNT(*) FROM throttle WHERE bucket = ? AND created_at > ?');
+        $st->execute([$bucket, $now - $window]);
+        if ((int)$st->fetchColumn() >= $limit) {
+            throw new UserError('محاولات كثيرة، انتظر قليلًا ثم حاول مجددًا.');
+        }
+        $pdo->prepare('INSERT INTO throttle (bucket, created_at) VALUES (?, ?)')->execute([$bucket, $now]);
+    } finally {
+        $pdo->prepare('SELECT RELEASE_LOCK(?)')->execute([$lock]);
+    }
 }
 
 function default_settings()
@@ -170,7 +190,7 @@ function delete_image($name)
     }
 }
 
-function resize_image($src, $dest, $type, $w, $h)
+function resize_image($src, $dest, $type, $w, $h, $webp = false)
 {
     switch ($type) {
         case IMAGETYPE_JPEG:
@@ -188,7 +208,7 @@ function resize_image($src, $dest, $type, $w, $h)
     if (!$im) {
         return false;
     }
-    $scale = min(1, 1000 / max($w, $h));
+    $scale = min(1, 1600 / max($w, $h));
     $nw = max(1, (int)round($w * $scale));
     $nh = max(1, (int)round($h * $scale));
     $canvas = imagecreatetruecolor($nw, $nh);
@@ -197,7 +217,9 @@ function resize_image($src, $dest, $type, $w, $h)
         imagesavealpha($canvas, true);
     }
     imagecopyresampled($canvas, $im, 0, 0, 0, 0, $nw, $nh, $w, $h);
-    if ($type === IMAGETYPE_JPEG) {
+    if ($webp) {
+        $ok = imagewebp($canvas, $dest, 88);
+    } elseif ($type === IMAGETYPE_JPEG) {
         $ok = imagejpeg($canvas, $dest, 84);
     } elseif ($type === IMAGETYPE_PNG) {
         $ok = imagepng($canvas, $dest, 6);
@@ -222,16 +244,29 @@ function save_image($file)
     if (!$info || !isset($map[$info[2]])) {
         throw new UserError('الملف ليس صورة صالحة (المسموح: JPG, PNG, WEBP, GIF).');
     }
+    if ($info[0] < 1 || $info[1] < 1 || $info[0] * $info[1] > 16000000) {
+        throw new UserError('أبعاد الصورة كبيرة جدًا (الحد 16 ميغابكسل).');
+    }
     $dir = ROOT . '/uploads';
     if (!is_dir($dir)) {
         @mkdir($dir, 0755, true);
     }
     $ext = $map[$info[2]];
-    $name = bin2hex(random_bytes(8)) . '.' . $ext;
+    $webp = $ext !== 'gif' && function_exists('imagecreatetruecolor') && function_exists('imagewebp');
+    $name = bin2hex(random_bytes(8)) . '.' . ($webp ? 'webp' : $ext);
     $dest = $dir . '/' . $name;
     $done = false;
     if (function_exists('imagecreatetruecolor') && $ext !== 'gif') {
-        $done = resize_image($file['tmp_name'], $dest, $info[2], $info[0], $info[1]);
+        $done = resize_image($file['tmp_name'], $dest, $info[2], $info[0], $info[1], $webp);
+        if ($done && filesize($dest) >= $file['size'] && max($info[0], $info[1]) <= 1600) {
+            @unlink($dest);
+            $done = false;
+        }
+    }
+    if (!$done && $webp && $ext !== 'webp') {
+        @unlink($dest);
+        $name = bin2hex(random_bytes(8)) . '.' . $ext;
+        $dest = $dir . '/' . $name;
     }
     if (!$done && !move_uploaded_file($file['tmp_name'], $dest)) {
         throw new UserError('تعذر حفظ الصورة على الخادم.');

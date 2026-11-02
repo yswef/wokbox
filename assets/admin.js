@@ -2,11 +2,11 @@
   'use strict';
 
   const API = '../api/admin.php';
-  const ST = { new: 'جديد', preparing: 'قيد التجهيز', ready: 'جاهز', out: 'خرج للتوصيل', delivered: 'تم التسليم', cancelled: 'ملغي' };
+  const ST = { new: 'جديد', confirmed: 'مؤكد', preparing: 'قيد التجهيز', ready: 'جاهز', out: 'خرج للتوصيل', delivered: 'تم التسليم', cancelled: 'ملغي' };
   const NAV = [
     ['overview', 'نظرة عامة'], ['orders', 'الطلبات'], ['products', 'المنيو والأسعار'], ['categories', 'الأقسام'],
     ['offers', 'العروض والخصومات'], ['coupons', 'أكواد الخصم'], ['zones', 'مناطق التوصيل'], ['ads', 'الإعلانات'],
-    ['customers', 'العملاء'], ['reports', 'التقارير'], ['settings', 'الإعدادات'], ['backup', 'النسخ الاحتياطي']
+    ['customers', 'العملاء'], ['reports', 'التقارير'], ['admins', 'المديرون'], ['settings', 'الإعدادات'], ['backup', 'النسخ الاحتياطي']
   ];
 
   let CSRF = '';
@@ -219,7 +219,7 @@
       const ok = e.target.closest('[data-cancel]');
       if (ok) {
         if (!confirm('تأكيد إلغاء هذا الطلب؟')) { return; }
-        await api('order_status', { id: ok.dataset.cancel, status: 'cancelled' });
+        await api('order_status', { id: ok.dataset.cancel, status: 'cancelled', expected_status: ok.dataset.expected });
         toast('تم إلغاء الطلب');
         return render('orders');
       }
@@ -227,9 +227,10 @@
     root.onchange = guard(async e => {
       const sel = e.target.closest('[data-status]');
       if (!sel) { return; }
-      await api('order_status', { id: sel.dataset.status, status: sel.value });
-      toast('تم تحديث الحالة');
-      render('orders');
+      try {
+        await api('order_status', { id: sel.dataset.status, status: sel.value, expected_status: sel.dataset.expected });
+        toast('تم تحديث الحالة');
+      } finally { render('orders'); }
     });
   };
 
@@ -240,6 +241,7 @@
   }
 
   function orderCard(o) {
+    const next = { new: ['confirmed', 'cancelled'], confirmed: ['preparing', 'cancelled'], preparing: ['ready', 'cancelled'], ready: ['out', 'cancelled'], out: ['delivered', 'cancelled'], delivered: [], cancelled: [] };
     const msg = `${STORE}\nتحديث طلبك ${o.code}\nالحالة: ${ST[o.status] || o.status}\nالإجمالي: ${fmt(o.total)} ${CUR}\nشكرًا لطلبك!`;
     return `<div class="order ${o.status === 'new' ? 'new' : ''}">
       <div class="o-head"><b dir="ltr">${esc(o.code)}</b><span class="s s-${esc(o.status)}">${esc(ST[o.status] || o.status)}</span><span class="muted" dir="ltr">${esc(o.created_at.slice(0, 16))}</span></div>
@@ -247,9 +249,9 @@
         <div><b>العنوان:</b> ${esc(o.address)}${o.zone_name ? ' — ' + esc(o.zone_name) : ''}</div>${o.notes ? `<div><b>ملاحظات:</b> ${esc(o.notes)}</div>` : ''}</div>
       <ul class="o-items">${o.items.map(i => `<li><span>${esc(i.name)} × ${i.qty}</span><span>${money(i.unit_price * i.qty)}</span></li>`).join('')}</ul>
       <div class="muted">المجموع ${money(o.subtotal)}${o.discount ? ' — خصم ' + money(o.discount) + (o.coupon_code ? ' (' + esc(o.coupon_code) + ')' : '') : ''}${o.zone_name ? ' — توصيل ' + (o.delivery_fee ? money(o.delivery_fee) : 'مجاني') : ''}</div>
-      ${o.cancel_requested && o.status !== 'cancelled' ? `<div class="warn">العميل طلب إلغاء هذا الطلب. <button class="btn btn-danger btn-sm" data-cancel="${o.id}">تأكيد الإلغاء</button><button class="btn btn-light btn-sm" data-reject="${o.id}">رفض الطلب</button></div>` : ''}
+      ${o.cancel_requested && o.status !== 'cancelled' ? `<div class="warn">العميل طلب إلغاء هذا الطلب. <button class="btn btn-danger btn-sm" data-cancel="${o.id}" data-expected="${esc(o.status)}">تأكيد الإلغاء</button><button class="btn btn-light btn-sm" data-reject="${o.id}">رفض الطلب</button></div>` : ''}
       <div class="o-foot"><span class="o-total">${money(o.total)}</span><div class="acts">
-        <select data-status="${o.id}" aria-label="حالة الطلب">${Object.keys(ST).map(k => `<option value="${k}"${k === o.status ? ' selected' : ''}>${ST[k]}</option>`).join('')}</select>
+        <select data-status="${o.id}" data-expected="${esc(o.status)}" aria-label="حالة الطلب">${[o.status].concat(next[o.status] || []).map(k => `<option value="${k}"${k === o.status ? ' selected' : ''}>${ST[k]}</option>`).join('')}</select>
         <button class="btn btn-light btn-sm" data-print="${o.id}">طباعة فاتورة</button>
         <a class="btn btn-light btn-sm" href="${esc(waLink(o, msg))}" target="_blank" rel="noopener">رسالة واتساب</a></div></div></div>`;
   }
@@ -461,6 +463,31 @@
         $('#pw-err').textContent = '';
       } catch (err) { $('#pw-err').textContent = err.message; }
     };
+  };
+
+  views.admins = async root => {
+    const data = await api('admins_list');
+    root.innerHTML = `<div class="bar"><h2>حسابات المديرين</h2></div>
+      <div class="panel"><p class="muted">كل مدير لديه صلاحية كاملة لإدارة المتجر والنسخ الاحتياطية وحسابات المديرين. أضف الأشخاص الموثوقين فقط.</p>
+      ${data.admins.map(a => `<p><b dir="ltr">${esc(a.username)}</b> ${Number(a.id) === data.current_id ? '(حسابك)' : `<button class="btn btn-danger btn-sm" data-delete-admin="${Number(a.id)}">حذف</button>`}</p>`).join('')}</div>
+      <form class="panel" id="admin-add"><h3>إضافة مدير</h3><div class="settings-grid">
+      <label class="f">اسم المستخدم<input name="username" dir="ltr" required minlength="3" maxlength="30" autocomplete="off"></label>
+      <label class="f">كلمة المرور (12 حرفًا على الأقل)<input name="password" type="password" dir="ltr" required minlength="12" maxlength="72" autocomplete="new-password"></label></div>
+      <div class="form-error" id="admin-error"></div><button class="btn btn-primary" type="submit">إضافة المدير</button></form>`;
+    $('#admin-add').onsubmit = async e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try { await api('admin_create', { username: fd.get('username'), password: fd.get('password') }); toast('تمت إضافة المدير'); render('admins'); }
+      catch (err) { $('#admin-error').textContent = err.message; }
+    };
+    root.onclick = guard(async e => {
+      const button = e.target.closest('[data-delete-admin]');
+      if (!button || !confirm('حذف هذا المدير وإلغاء وصوله؟')) return;
+      const password = prompt('أدخل كلمة مرور حسابك للتأكيد:');
+      if (password === null) return;
+      await api('admin_delete', { id: button.dataset.deleteAdmin, password });
+      toast('تم حذف المدير'); render('admins');
+    });
   };
 
   views.backup = async root => {

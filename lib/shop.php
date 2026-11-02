@@ -1,4 +1,17 @@
 <?php
+function order_next_statuses($status)
+{
+    $next = [
+        'new' => ['confirmed', 'cancelled'],
+        'confirmed' => ['preparing', 'cancelled'],
+        'preparing' => ['ready', 'cancelled'],
+        'ready' => ['out', 'cancelled'],
+        'out' => ['delivered', 'cancelled'],
+        'delivered' => [], 'cancelled' => [],
+    ];
+    return $next[$status] ?? [];
+}
+
 function active_offers()
 {
     $today = date('Y-m-d');
@@ -228,7 +241,7 @@ function new_order_code()
 {
     $pdo = db();
     for ($i = 0; $i < 10; $i++) {
-        $code = 'WB-' . random_int(100000, 999999);
+        $code = 'WB-' . strtoupper(bin2hex(random_bytes(6)));
         $st = $pdo->prepare('SELECT 1 FROM orders WHERE code = ?');
         $st->execute([$code]);
         if (!$st->fetchColumn()) {
@@ -253,8 +266,8 @@ function create_order(array $in)
     if (mb_strlen($name) < 2) {
         throw new UserError('اكتب اسمك.');
     }
-    if (strlen($phone) < 8 || strlen($phone) > 15) {
-        throw new UserError('رقم الهاتف غير صحيح.');
+    if (!valid_customer_phone($phone)) {
+        throw new UserError('أدخل رقم جوال يمني صحيحًا من 9 أرقام يبدأ بـ 7.');
     }
     if (mb_strlen($address) < 5) {
         throw new UserError('اكتب العنوان بالتفصيل.');

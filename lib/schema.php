@@ -104,7 +104,8 @@ function schema_statements()
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             bucket VARCHAR(80) NOT NULL,
             created_at INT UNSIGNED NOT NULL,
-            KEY idx_bucket (bucket, created_at)
+            KEY idx_bucket (bucket, created_at),
+            KEY idx_throttle_created (created_at)
         ) $opt",
     ];
 }

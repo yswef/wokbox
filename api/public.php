@@ -57,8 +57,9 @@ try {
             if ($o['status'] !== 'new') {
                 throw new UserError('لا يمكن طلب الإلغاء بعد بدء التجهيز. تواصل مع المتجر مباشرة.');
             }
-            db()->prepare('UPDATE orders SET cancel_requested = 1, updated_at = ? WHERE id = ?')
-                ->execute([date('Y-m-d H:i:s'), $o['id']]);
+            $st = db()->prepare("UPDATE orders SET cancel_requested = 1, updated_at = ? WHERE id = ? AND status = 'new' AND cancel_requested = 0");
+            $st->execute([date('Y-m-d H:i:s'), $o['id']]);
+            if (!$st->rowCount()) { throw new UserError('تغيرت حالة الطلب، حدّث التتبع وحاول مجددًا.'); }
             out(['cancel_requested' => true]);
             break;
 

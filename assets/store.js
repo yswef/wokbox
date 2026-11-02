@@ -3,7 +3,7 @@
 
   var M = window.__BOOT;
   var CART_KEY = 'wb_cart', ORD_KEY = 'wb_orders', PROFILE_KEY = 'wb_profile';
-  var STEPS = [['new', 'تم الاستلام'], ['preparing', 'قيد التجهيز'], ['ready', 'جاهز'], ['out', 'خرج للتوصيل'], ['delivered', 'تم التسليم']];
+  var STEPS = [['new', 'تم الاستلام'], ['confirmed', 'تم التأكيد'], ['preparing', 'قيد التجهيز'], ['ready', 'جاهز'], ['out', 'خرج للتوصيل'], ['delivered', 'تم التسليم']];
 
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var esc = function (v) {
@@ -273,7 +273,7 @@
     var name = $('#f-name').value.trim(), phone = $('#f-phone').value.trim(), address = $('#f-address').value.trim();
     var zone = parseInt($('#f-zone').value, 10) || 0;
     if (name.length < 2) { err.textContent = 'اكتب اسمك.'; return; }
-    if (phone.replace(/\D/g, '').length < 8) { err.textContent = 'اكتب رقم هاتف صحيح.'; return; }
+    if (!phone) { err.textContent = 'اكتب رقم هاتفك.'; return; }
     if (M.zones.length && !zone) { err.textContent = 'اختر منطقة التوصيل.'; return; }
     if (address.length < 5) { err.textContent = 'اكتب العنوان بالتفصيل.'; return; }
     var btn = $('#submit-order');
@@ -347,17 +347,30 @@
     }
   }
 
+  var lastTrackStatus = null;
   function doTrack(silent) {
     var args = state.trackArgs;
     if (!args) { return; }
     api('track', args).then(function (o) {
+      if (args !== state.trackArgs) { return; }
+      if (lastTrackStatus && lastTrackStatus !== o.status) {
+        var label = STEPS.filter(function (s) { return s[0] === o.status; })[0];
+        var message = 'طلبك ' + o.code + ': ' + (label ? label[1] : 'تم الإلغاء');
+        toast(message);
+        if ('Notification' in window && Notification.permission === 'granted') {
+          try { new Notification('تحديث الطلب', { body: message }); } catch (e) { /* unsupported */ }
+        }
+      }
+      lastTrackStatus = o.status;
       renderTrack(o);
       clearTimeout(state.trackTimer);
       if (o.status !== 'delivered' && o.status !== 'cancelled') {
         state.trackTimer = setTimeout(function () { doTrack(true); }, 30000);
       }
     }).catch(function (e) {
+      if (args !== state.trackArgs) { return; }
       clearTimeout(state.trackTimer);
+      if (silent) { state.trackTimer = setTimeout(function () { doTrack(true); }, 60000); }
       if (!silent) { $('#track-result').innerHTML = '<div class="alert bad">' + esc(e.message) + '</div>'; }
     });
   }
@@ -365,6 +378,8 @@
   function trackWith(code, phone) {
     $('#track-code').value = code;
     $('#track-phone').value = phone;
+    clearTimeout(state.trackTimer);
+    lastTrackStatus = null;
     state.trackArgs = { code: code, phone: phone };
     doTrack(false);
   }
@@ -408,6 +423,12 @@
     msg.textContent = 'جارٍ التحقق...';
     msg.className = 'muted';
     scheduleQuote();
+  });
+  $('#track-notify').addEventListener('click', function () {
+    if (!('Notification' in window)) { toast('المتصفح لا يدعم الإشعارات'); return; }
+    Notification.requestPermission().then(function (permission) {
+      toast(permission === 'granted' ? 'تم تفعيل التنبيهات أثناء فتح صفحة التتبع' : 'لم يتم السماح بالإشعارات');
+    });
   });
   $('#track-form').addEventListener('submit', function (e) {
     e.preventDefault();
