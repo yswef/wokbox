@@ -426,6 +426,7 @@
   function doTrack(silent) {
     var args = state.trackArgs;
     if (!args) { return; }
+    if (silent && document.hidden) { clearTimeout(state.trackTimer); state.trackTimer = setTimeout(function () { doTrack(true); }, 30000); return; }
     api('track', args).then(function (o) {
       if (args !== state.trackArgs) { return; }
       if (lastTrackStatus && lastTrackStatus !== o.status) {
@@ -461,6 +462,7 @@
 
   /* ---------- تحديث المنيو ---------- */
   function refreshMenu() {
+    if (document.hidden) { return; }
     api('menu', null, 'GET').then(function (m) {
       M = m;
       renderNotices();
