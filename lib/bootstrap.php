@@ -103,7 +103,7 @@ function valid_customer_phone($phone)
 
 function valid_admin_password($password)
 {
-    return mb_strlen((string)$password, 'UTF-8') >= 12 && strlen((string)$password) <= 72;
+    return mb_strlen((string)$password, 'UTF-8') >= 8 && strlen((string)$password) <= 72;
 }
 
 function client_ip()
