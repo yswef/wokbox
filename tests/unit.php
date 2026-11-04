@@ -61,7 +61,7 @@ $code = new_order_code();
 check_test((bool)preg_match('/^WB-[0-9A-F]{8}$/', $code), 'new order code has eight characters');
 check_test(request_token_hash($token) === request_token_hash($token) && request_token_hash($token) !== request_token_hash(str_repeat('b', 32)), 'stable full-length per-submission hash');
 try { request_token_hash('bad'); check_test(false, 'reject invalid request key'); } catch (UserError $e) { check_test(true, 'reject invalid request key'); }
-check_test(!valid_admin_password('12345678') && valid_admin_password('123456789012'), 'consistent minimum admin password length');
+check_test(!valid_admin_password('1234567') && valid_admin_password('12345678') && !valid_admin_password(str_repeat('a', 73)), 'admin password minimum is 8 characters');
 require __DIR__ . '/../lib/backup.php';
 check_test(!backup_image_valid('0000000000000000.png', 'not an image'), 'reject malformed backup image');
 check_test(!backup_image_valid('../0000000000000000.png', ''), 'reject invalid image path');
