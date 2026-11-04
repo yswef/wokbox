@@ -444,7 +444,7 @@
       <p class="muted">المواعيد يومية بتوقيت المتجر؛ الإغلاق اليدوي يتقدم على الجدول. اختر وقت إغلاق مختلفًا عن وقت الفتح، ويمكن أن يمتد الدوام بعد منتصف الليل.</p>
       <form class="panel" id="pw-form"><h3>تغيير كلمة المرور</h3><div class="settings-grid">
         <label class="f">كلمة المرور الحالية<input name="current" type="password" autocomplete="current-password" dir="ltr"></label>
-        <label class="f">كلمة المرور الجديدة (12 حرفًا فأكثر)<input name="new" type="password" autocomplete="new-password" minlength="12" maxlength="72" dir="ltr"></label></div>
+        <label class="f">كلمة المرور الجديدة (8 خانات فأكثر)<input name="new" type="password" autocomplete="new-password" minlength="8" maxlength="72" dir="ltr"></label></div>
         <div class="form-error" id="pw-err"></div><button class="btn btn-light" type="submit">تغيير كلمة المرور</button></form>
       <form class="panel" id="reset-form"><h3>حذف بيانات المتجر التجريبية</h3>
         <p class="muted">يحذف الطلبات والمنتجات والأقسام والعروض والمناطق والكوبونات والإعلانات وصورها. يبقي حسابات المديرين والإعدادات والشعار. تحفظ نسخة تلقائية في مجلد النسخ الاحتياطية قبل الحذف؛ تأكد من تنزيل نسخة أيضًا. يجب إغلاق استقبال الطلبات يدويًا من الإعدادات وحفظها أولًا، وإيقاف التعديلات قبل الحذف.</p>
@@ -493,7 +493,7 @@
       ${data.admins.map(a => `<p><b dir="ltr">${esc(a.username)}</b> ${Number(a.id) === data.current_id ? '(حسابك)' : `<button class="btn btn-danger btn-sm" data-delete-admin="${Number(a.id)}">حذف</button>`}</p>`).join('')}</div>
       <form class="panel" id="admin-add"><h3>إضافة مدير</h3><div class="settings-grid">
       <label class="f">اسم المستخدم<input name="username" dir="ltr" required minlength="3" maxlength="30" autocomplete="off"></label>
-      <label class="f">كلمة المرور (12 حرفًا على الأقل)<input name="password" type="password" dir="ltr" required minlength="12" maxlength="72" autocomplete="new-password"></label></div>
+      <label class="f">كلمة المرور (8 خانات على الأقل)<input name="password" type="password" dir="ltr" required minlength="8" maxlength="72" autocomplete="new-password"></label></div>
       <div class="form-error" id="admin-error"></div><button class="btn btn-primary" type="submit">إضافة المدير</button></form>`;
     $('#admin-add').onsubmit = async e => {
       e.preventDefault();
