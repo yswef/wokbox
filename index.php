@@ -12,7 +12,7 @@ function e($s)
 }
 
 try {
-    $boot = menu_payload();
+    $boot = menu_payload_cached();
 } catch (Throwable $ex) {
     error_log('[wokbox] ' . $ex->getMessage());
     http_response_code(503);
