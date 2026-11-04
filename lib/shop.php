@@ -114,6 +114,37 @@ function menu_payload()
     ];
 }
 
+// Short-lived file cache so thousands of visitors do not each run the menu queries.
+function menu_cache_file()
+{
+    return ROOT . '/storage/cache/menu.json';
+}
+
+function menu_payload_cached($ttl = 10)
+{
+    $file = menu_cache_file();
+    $mtime = @filemtime($file);
+    if ($mtime !== false && (time() - $mtime) < $ttl) {
+        $raw = @file_get_contents($file);
+        $data = $raw !== false ? json_decode($raw, true) : null;
+        if (is_array($data) && isset($data['settings'], $data['products'])) { return $data; }
+    }
+    $data = menu_payload();
+    $dir = dirname($file);
+    if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE);
+    if ($json !== false && is_dir($dir) && is_writable($dir)) {
+        $tmp = $file . '.' . bin2hex(random_bytes(4)) . '.tmp';
+        if (@file_put_contents($tmp, $json) !== false && !@rename($tmp, $file)) { @unlink($tmp); }
+    }
+    return $data;
+}
+
+function menu_cache_clear()
+{
+    @unlink(menu_cache_file());
+}
+
 function find_coupon($code, $subtotal)
 {
     $st = db()->prepare('SELECT * FROM coupons WHERE code = ?');
@@ -143,7 +174,8 @@ function price_cart(array $items, $zoneId, $couponCode, $strict)
         $id = (int)($it['id'] ?? 0);
         $q = (int)($it['qty'] ?? 0);
         if ($id > 0 && $q > 0) {
-            $clean[$id] = min(50, ($clean[$id] ?? 0) + $q);
+            $clean[$id] = min(1000, ($clean[$id] ?? 0) + $q);
+            if ($clean[$id] > 50) { throw new UserError('الحد الأقصى 50 قطعة لكل طلب.'); }
         }
     }
     if (array_sum($clean) > 50) { throw new UserError('الحد الأقصى 50 قطعة لكل طلب.'); }
@@ -301,7 +333,7 @@ function create_order(array $in)
     $pdo = db();
     $existing = existing_order_for_request($token, $phone);
     if ($existing) { return $existing; }
-    throttle('order:' . client_ip(), 8, 900);
+    throttle('order:' . client_ip(), 30, 900);
     throttle('phone:' . hash('sha256', $phone), 6, 900);
     $lock = 'wbo:' . $token;
     $st = $pdo->prepare('SELECT GET_LOCK(?, 5)');
