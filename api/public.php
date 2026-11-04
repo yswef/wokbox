@@ -14,11 +14,11 @@ try {
     }
     switch ($action) {
         case 'menu':
-            out(menu_payload());
+            out(menu_payload_cached());
             break;
 
         case 'quote':
-            throttle('quote:' . client_ip(), 120, 300);
+            throttle('quote:' . client_ip(), 600, 300);
             $q = price_cart(
                 is_array($in['items'] ?? null) ? $in['items'] : [],
                 (int)($in['zone_id'] ?? 0),
@@ -34,7 +34,7 @@ try {
             break;
 
         case 'order_recover':
-            throttle('recover:' . client_ip(), 30, 600);
+            throttle('recover:' . client_ip(), 60, 600);
             $phone = normalize_phone($in['phone'] ?? '');
             $token = strtolower((string)($in['request_token'] ?? ''));
             $order = recover_order_request($token, $phone);
@@ -42,7 +42,7 @@ try {
             break;
 
         case 'track':
-            throttle('track:' . client_ip(), 30, 600);
+            throttle('track:' . client_ip(), 120, 600);
             $o = find_order_for_customer($in['code'] ?? '', $in['phone'] ?? '');
             out([
                 'code'             => $o['code'],
@@ -60,7 +60,7 @@ try {
             break;
 
         case 'cancel':
-            throttle('cancel:' . client_ip(), 10, 600);
+            throttle('cancel:' . client_ip(), 20, 600);
             $o = find_order_for_customer($in['code'] ?? '', $in['phone'] ?? '');
             if ($o['status'] !== 'new') {
                 throw new UserError('لا يمكن طلب الإلغاء بعد بدء التجهيز. تواصل مع المتجر مباشرة.');
