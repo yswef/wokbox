@@ -27,6 +27,14 @@ function req_text($k, $max, $label)
     return $v;
 }
 
+function cap_int($v, $max, $label)
+{
+    if ($v > $max) {
+        throw new UserError($label . ' كبيرة جدًا (الحد الأقصى ' . number_format($max) . ').');
+    }
+    return $v;
+}
+
 function opt_date($k)
 {
     $v = inp($k);
@@ -140,6 +148,11 @@ try {
     }
 
     need_admin();
+    // Any admin change may alter the public menu: drop the cache now and again when the request ends.
+    if (!in_array($action, ['logout', 'products_list', 'categories_list', 'offers_list', 'ads_list', 'zones_list', 'coupons_list', 'orders_list', 'order_status', 'order_reject_cancel', 'poll', 'customers_list', 'stats', 'admins_list', 'settings_get', 'backup_download'], true)) {
+        menu_cache_clear();
+        register_shutdown_function('menu_cache_clear');
+    }
 
     switch ($action) {
         case 'logout':
@@ -164,6 +177,7 @@ try {
             if ($price < 0) {
                 throw new UserError('أدخل سعرًا صحيحًا.');
             }
+            cap_int($price, 10000000, 'القيمة');
             $cat = inp_int('category_id');
             if (!exists_row('categories', $cat)) {
                 throw new UserError('اختر قسمًا صالحًا.');
@@ -171,7 +185,7 @@ try {
             $desc = clean_text(inp('description'), 255);
             $emoji = clean_text(inp('emoji'), 16);
             $avail = inp_int('available', 1) ? 1 : 0;
-            $sort = inp_int('sort_order', 0);
+            $sort = max(-100000, min(100000, inp_int('sort_order', 0)));
             $old = null;
             $newImage = '';
             if (has_upload('image')) { $newImage = save_image($_FILES['image']); }
@@ -238,7 +252,7 @@ try {
             $id = inp_int('id');
             $name = req_text('name', 80, 'اسم القسم');
             $emoji = clean_text(inp('emoji'), 16);
-            $sort = inp_int('sort_order', 0);
+            $sort = max(-100000, min(100000, inp_int('sort_order', 0)));
             if ($id) {
                 if (!exists_row('categories', $id)) {
                     throw new UserError('القسم غير موجود.');
@@ -276,6 +290,7 @@ try {
             if ($value <= 0 || ($type === 'percent' && $value > 100)) {
                 throw new UserError('قيمة الخصم غير صحيحة (النسبة من 1 إلى 100).');
             }
+            cap_int($value, 10000000, 'قيمة الخصم');
             $product = inp('product_id') === '' || inp('product_id') === 'all' ? null : inp_int('product_id');
             if ($product !== null && !exists_row('products', $product)) {
                 throw new UserError('المنتج المحدد غير موجود.');
@@ -376,6 +391,7 @@ try {
             if ($fee < 0) {
                 throw new UserError('رسوم التوصيل غير صحيحة.');
             }
+            cap_int($fee, 10000000, 'رسوم التوصيل');
             $active = inp_int('active', 1) ? 1 : 0;
             if ($id) {
                 $pdo->prepare('UPDATE zones SET name=?, fee=?, active=? WHERE id=?')->execute([$name, $fee, $active, $id]);
@@ -412,8 +428,9 @@ try {
             if ($value <= 0 || ($type === 'percent' && $value > 100)) {
                 throw new UserError('قيمة الخصم غير صحيحة (النسبة من 1 إلى 100).');
             }
-            $min = max(0, inp_int('min_order', 0));
-            $max = inp('max_uses') === '' ? null : max(1, inp_int('max_uses'));
+            cap_int($value, 10000000, 'قيمة الخصم');
+            $min = cap_int(max(0, inp_int('min_order', 0)), 100000000, 'الحد الأدنى');
+            $max = inp('max_uses') === '' ? null : cap_int(max(1, inp_int('max_uses')), 10000000, 'عدد مرات الاستخدام');
             $exp = opt_date('expires_on');
             $active = inp_int('active', 1) ? 1 : 0;
             $dup = $pdo->prepare('SELECT id FROM coupons WHERE code = ? AND id <> ?');
@@ -618,7 +635,7 @@ try {
                 throw new UserError('اسم المستخدم: 3 إلى 30 حرفًا إنجليزيًا أو أرقامًا.');
             }
             if (!valid_admin_password($password)) {
-                throw new UserError('كلمة المرور يجب ألا تقل عن 12 حرفًا ولا تزيد عن 72 بايت.');
+                throw new UserError('كلمة المرور يجب ألا تقل عن 8 أحرف أو أرقام ولا تزيد عن 72 بايت.');
             }
             try {
                 $pdo->prepare('INSERT INTO admins (username, password_hash, created_at) VALUES (?,?,?)')
@@ -695,7 +712,7 @@ try {
             }
             foreach (['min_order', 'free_delivery_over'] as $k) {
                 if (isset($_POST[$k])) {
-                    set_setting($k, (string)max(0, (int)$_POST[$k]));
+                    set_setting($k, (string)cap_int(max(0, (int)$_POST[$k]), 100000000, 'القيمة'));
                 }
             }
             if (isset($_POST['open'])) {
@@ -754,7 +771,7 @@ try {
             }
             $new = (string)($_POST['new'] ?? '');
             if (!valid_admin_password($new)) {
-                throw new UserError('كلمة المرور الجديدة يجب ألا تقل عن 12 حرفًا ولا تزيد عن 72 بايت.');
+                throw new UserError('كلمة المرور الجديدة يجب ألا تقل عن 8 أحرف أو أرقام ولا تزيد عن 72 بايت.');
             }
             $pdo->prepare('UPDATE admins SET password_hash = ? WHERE id = ?')
                 ->execute([password_hash($new, PASSWORD_DEFAULT), $u['id']]);
